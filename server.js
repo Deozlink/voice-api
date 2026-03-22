@@ -5,15 +5,12 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ============================================
-// CONFIGURACIÓN - CON SKILL ID
-// ============================================
+// Configuración
 const ALEXA_CONFIG = {
   clientId: process.env.ALEXA_CLIENT_ID,
   clientSecret: process.env.ALEXA_CLIENT_SECRET,
   redirectUri: 'https://voice-api-dblt-if6d.onrender.com/auth/alexa/callback',
-  scope: 'alexa:alerts:reminders:skill:readwrite profile',
-  skillId: 'amzn1.ask.skill.fe1de224-d84d-4911-a588-8a03cdf2540a'  // ⚠️ PON TU SKILL ID AQUÍ
+  scope: 'alexa:alerts:reminders:skill:readwrite profile'
 };
 
 let alexaTokens = {
@@ -22,17 +19,11 @@ let alexaTokens = {
   expiresAt: null
 };
 
-const alertas = new Map();
-const alertaTimeouts = new Map();
-
-// ============================================
-// FUNCIONES DE ALEXA
-// ============================================
+// Función para obtener token
 async function getAlexaAccessToken() {
   if (alexaTokens.accessToken && alexaTokens.expiresAt > Date.now()) {
     return alexaTokens.accessToken;
   }
-
   if (alexaTokens.refreshToken) {
     try {
       const response = await fetch('https://api.amazon.com/auth/o2/token', {
@@ -45,7 +36,6 @@ async function getAlexaAccessToken() {
           client_secret: ALEXA_CONFIG.clientSecret
         }).toString()
       });
-      
       const data = await response.json();
       alexaTokens.accessToken = data.access_token;
       alexaTokens.refreshToken = data.refresh_token;
@@ -55,14 +45,13 @@ async function getAlexaAccessToken() {
       console.error('Error refrescando token:', error.message);
     }
   }
-  
   throw new Error('No hay token. Visita /auth/alexa');
 }
 
+// Función para crear recordatorio
 async function crearRecordatorioAlexa(mensaje, fecha, hora) {
   try {
     const accessToken = await getAlexaAccessToken();
-    
     const scheduledTime = `${fecha}T${hora}:00.000-06:00`;
     
     const reminderBody = {
@@ -93,24 +82,14 @@ async function crearRecordatorioAlexa(mensaje, fecha, hora) {
     });
     
     const data = await response.json();
-    
-    if (!response.ok) {
-      console.error('Error Alexa API:', data);
-      throw new Error(data.message || 'Error al crear recordatorio');
-    }
-    
-    console.log('✅ Recordatorio creado:', data);
+    if (!response.ok) throw new Error(data.message || 'Error');
     return { ok: true, reminderId: data.id };
-    
   } catch (error) {
-    console.error('❌ Error:', error.message);
     return { ok: false, error: error.message };
   }
 }
 
-// ============================================
-// ENDPOINTS
-// ============================================
+// ========== ENDPOINTS ==========
 
 app.get("/", (req, res) => {
   res.json({ ok: true, mensaje: "API de PayTrack funcionando" });
@@ -123,10 +102,7 @@ app.get('/auth/alexa', (req, res) => {
 
 app.get('/auth/alexa/callback', async (req, res) => {
   const { code } = req.query;
-  
-  if (!code) {
-    return res.send('Error: No se recibió código');
-  }
+  if (!code) return res.send('Error: No se recibió código');
   
   try {
     const response = await fetch('https://api.amazon.com/auth/o2/token', {
@@ -140,24 +116,18 @@ app.get('/auth/alexa/callback', async (req, res) => {
         redirect_uri: ALEXA_CONFIG.redirectUri
       }).toString()
     });
-    
     const data = await response.json();
-    
     alexaTokens = {
       accessToken: data.access_token,
       refreshToken: data.refresh_token,
       expiresAt: Date.now() + (data.expires_in * 1000)
     };
-    
     res.send(`
-      <html>
-        <body style="font-family: sans-serif; text-align: center; margin-top: 50px;">
-          <h1 style="color: green;">✅ Autenticación exitosa</h1>
-          <p>PayTrack ahora puede crear recordatorios en Alexa.</p>
-          <p>Los recordatorios llegarán a tu teléfono.</p>
-          <p>Ya puedes cerrar esta ventana.</p>
-        </body>
-      </html>
+      <html><body style="text-align:center;margin-top:50px;">
+        <h1 style="color:green;">✅ Autenticación exitosa</h1>
+        <p>PayTrack puede crear recordatorios en Alexa.</p>
+        <p>Ya puedes cerrar esta ventana.</p>
+      </body></html>
     `);
   } catch (error) {
     res.send('Error: ' + error.message);
@@ -166,13 +136,11 @@ app.get('/auth/alexa/callback', async (req, res) => {
 
 app.get('/auth/status', (req, res) => {
   const isAuthed = alexaTokens.accessToken && alexaTokens.expiresAt > Date.now();
-  res.json({ 
-    autenticado: isAuthed,
-    expira: alexaTokens.expiresAt ? new Date(alexaTokens.expiresAt).toISOString() : null
-  });
+  res.json({ autenticado: isAuthed, expira: alexaTokens.expiresAt ? new Date(alexaTokens.expiresAt).toISOString() : null });
 });
 
-app.post("/api/alexa/prueba-rapida", async (req, res) => {
+// ✅ ENDPOINT DE PRUEBA RÁPIDA
+app.post('/api/alexa/prueba-rapida', async (req, res) => {
   try {
     const { mensaje } = req.body;
     const ahora = new Date();
@@ -180,8 +148,7 @@ app.post("/api/alexa/prueba-rapida", async (req, res) => {
     const fecha = ahora.toISOString().split('T')[0];
     const hora = ahora.toTimeString().split(' ')[0].slice(0, 5);
     
-    console.log(`📅 Programando prueba: ${fecha} ${hora}`);
-    
+    console.log(`📅 Prueba: ${fecha} ${hora}`);
     const result = await crearRecordatorioAlexa(mensaje || "Prueba desde PayTrack", fecha, hora);
     res.json({ ok: result.ok, mensaje: result.ok ? "Recordatorio en 10 segundos" : "Error", detalle: result });
   } catch (error) {
@@ -189,58 +156,37 @@ app.post("/api/alexa/prueba-rapida", async (req, res) => {
   }
 });
 
-app.post("/api/voice/programar", async (req, res) => {
+app.post('/api/voice/programar', async (req, res) => {
   try {
-    const { url, fecha, hora, tarjeta, id } = req.body;
-    
+    const { url, fecha, hora, tarjeta } = req.body;
     if (!url || !fecha || !hora) {
       return res.status(400).json({ ok: false, error: "Faltan datos" });
     }
     
-    const fechaHoraProgramada = new Date(`${fecha}T${hora}:00-06:00`);
-    const ahora = new Date();
-    
-    if (fechaHoraProgramada < ahora) {
+    const fechaHora = new Date(`${fecha}T${hora}:00-06:00`);
+    if (fechaHora < new Date()) {
       return res.status(400).json({ ok: false, error: "Fecha/hora ya pasó" });
     }
     
-    const mensajeAlexa = `Recordatorio de pago para ${tarjeta || 'tu tarjeta'}`;
-    const alexaResult = await crearRecordatorioAlexa(mensajeAlexa, fecha, hora);
+    const alexaResult = await crearRecordatorioAlexa(`Recordatorio de pago para ${tarjeta || 'tu tarjeta'}`, fecha, hora);
     
-    const msHasta = fechaHoraProgramada - ahora;
-    const alertaId = id || Date.now().toString();
-    
-    const timeoutId = setTimeout(async () => {
-      try {
-        await fetch(url);
-        console.log(`✅ Voice Monkey ejecutado`);
-      } catch (e) {
-        console.error(`❌ Error: ${e.message}`);
-      }
+    const msHasta = fechaHora - new Date();
+    setTimeout(async () => {
+      try { await fetch(url); console.log('✅ Voice Monkey ejecutado'); } catch (e) { console.error('Error:', e.message); }
     }, msHasta);
     
-    alertaTimeouts.set(alertaId, timeoutId);
-    
-    res.json({
-      ok: true,
-      id: alertaId,
-      estado: "programada",
-      msHasta,
-      alexa: alexaResult.ok ? "recordatorio_creado" : "fallo"
-    });
-    
+    res.json({ ok: true, alexa: alexaResult.ok ? "recordatorio_creado" : "fallo" });
   } catch (error) {
-    console.error("Error:", error);
     res.status(500).json({ ok: false, error: error.message });
   }
 });
 
-app.post("/api/voice/disparar-ahora", async (req, res) => {
+app.post('/api/voice/disparar-ahora', async (req, res) => {
   try {
     const { url } = req.body;
     if (!url) return res.status(400).json({ ok: false, error: "URL requerida" });
     await fetch(url.trim());
-    res.json({ ok: true, mensaje: "Alerta disparada" });
+    res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }
@@ -250,5 +196,4 @@ const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`🚀 Servidor en puerto ${PORT}`);
   console.log(`📍 URL: https://voice-api-dblt-if6d.onrender.com`);
-  console.log(`🔐 Autenticación: /auth/alexa`);
 });
