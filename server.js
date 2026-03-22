@@ -6,13 +6,14 @@ app.use(cors());
 app.use(express.json());
 
 // ============================================
-// CONFIGURACIÓN - VERSIÓN SIMPLIFICADA
+// CONFIGURACIÓN - CON SKILL ID
 // ============================================
 const ALEXA_CONFIG = {
   clientId: process.env.ALEXA_CLIENT_ID,
   clientSecret: process.env.ALEXA_CLIENT_SECRET,
   redirectUri: 'https://voice-api-dblt-if6d.onrender.com/auth/alexa/callback',
-  scope: 'profile postal_code'  // Scopes básicos que siempre funcionan
+  scope: 'alexa:alerts:reminders:skill:readwrite profile',
+  skillId: 'amzn1.ask.skill.TU_SKILL_ID_AQUI'  // ⚠️ PON TU SKILL ID AQUÍ
 };
 
 let alexaTokens = {
@@ -20,6 +21,92 @@ let alexaTokens = {
   refreshToken: null,
   expiresAt: null
 };
+
+const alertas = new Map();
+const alertaTimeouts = new Map();
+
+// ============================================
+// FUNCIONES DE ALEXA
+// ============================================
+async function getAlexaAccessToken() {
+  if (alexaTokens.accessToken && alexaTokens.expiresAt > Date.now()) {
+    return alexaTokens.accessToken;
+  }
+
+  if (alexaTokens.refreshToken) {
+    try {
+      const response = await fetch('https://api.amazon.com/auth/o2/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'refresh_token',
+          refresh_token: alexaTokens.refreshToken,
+          client_id: ALEXA_CONFIG.clientId,
+          client_secret: ALEXA_CONFIG.clientSecret
+        }).toString()
+      });
+      
+      const data = await response.json();
+      alexaTokens.accessToken = data.access_token;
+      alexaTokens.refreshToken = data.refresh_token;
+      alexaTokens.expiresAt = Date.now() + (data.expires_in * 1000);
+      return alexaTokens.accessToken;
+    } catch (error) {
+      console.error('Error refrescando token:', error.message);
+    }
+  }
+  
+  throw new Error('No hay token. Visita /auth/alexa');
+}
+
+async function crearRecordatorioAlexa(mensaje, fecha, hora) {
+  try {
+    const accessToken = await getAlexaAccessToken();
+    
+    const scheduledTime = `${fecha}T${hora}:00.000-06:00`;
+    
+    const reminderBody = {
+      trigger: {
+        type: "SCHEDULED_ABSOLUTE",
+        scheduledTime: scheduledTime,
+        timeZoneId: "America/Mexico_City"
+      },
+      alertInfo: {
+        spokenInfo: {
+          content: [{
+            locale: "es-MX",
+            text: mensaje,
+            ssml: `<speak>${mensaje}</speak>`
+          }]
+        }
+      },
+      pushNotification: { status: "ENABLED" }
+    };
+    
+    const response = await fetch('https://api.amazonalexa.com/v2/alerts/reminders', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(reminderBody)
+    });
+    
+    const data = await response.json();
+    
+    if (!response.ok) {
+      console.error('Error Alexa API:', data);
+      throw new Error(data.message || 'Error al crear recordatorio');
+    }
+    
+    console.log('✅ Recordatorio creado:', data);
+    return { ok: true, reminderId: data.id };
+    
+  } catch (error) {
+    console.error('❌ Error:', error.message);
+    return { ok: false, error: error.message };
+  }
+}
 
 // ============================================
 // ENDPOINTS
@@ -31,7 +118,6 @@ app.get("/", (req, res) => {
 
 app.get('/auth/alexa', (req, res) => {
   const authUrl = `https://www.amazon.com/ap/oa?client_id=${ALEXA_CONFIG.clientId}&scope=${encodeURIComponent(ALEXA_CONFIG.scope)}&response_type=code&redirect_uri=${encodeURIComponent(ALEXA_CONFIG.redirectUri)}`;
-  console.log('Redirigiendo a:', authUrl);
   res.redirect(authUrl);
 });
 
@@ -51,102 +137,4 @@ app.get('/auth/alexa/callback', async (req, res) => {
         code: code,
         client_id: ALEXA_CONFIG.clientId,
         client_secret: ALEXA_CONFIG.clientSecret,
-        redirect_uri: ALEXA_CONFIG.redirectUri
-      }).toString()
-    });
-    
-    const data = await response.json();
-    
-    if (data.error) {
-      throw new Error(data.error_description || data.error);
-    }
-    
-    alexaTokens = {
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token,
-      expiresAt: Date.now() + (data.expires_in * 1000)
-    };
-    
-    res.send(`
-      <html>
-        <body style="font-family: sans-serif; text-align: center; margin-top: 50px;">
-          <h1 style="color: green;">✅ Autenticación exitosa</h1>
-          <p>Tu cuenta de Amazon está conectada a PayTrack.</p>
-          <p><strong>Access Token:</strong> ${data.access_token.substring(0, 50)}...</p>
-          <p>Ya puedes cerrar esta ventana.</p>
-        </body>
-      </html>
-    `);
-  } catch (error) {
-    console.error('Error en callback:', error.message);
-    res.send(`<h1>Error</h1><p>${error.message}</p>`);
-  }
-});
-
-app.get('/auth/status', (req, res) => {
-  const isAuthed = alexaTokens.accessToken && alexaTokens.expiresAt > Date.now();
-  res.json({ 
-    autenticado: isAuthed,
-    expira: alexaTokens.expiresAt ? new Date(alexaTokens.expiresAt).toISOString() : null
-  });
-});
-
-app.post("/api/voice/disparar-ahora", async (req, res) => {
-  try {
-    const { url } = req.body;
-    if (!url) return res.status(400).json({ ok: false, error: "URL requerida" });
-    await fetch(url.trim());
-    res.json({ ok: true, mensaje: "Alerta disparada" });
-  } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
-  }
-});
-
-app.post("/api/voice/programar", async (req, res) => {
-  try {
-    const { url, fecha, hora, tarjeta, id } = req.body;
-    
-    if (!url || !fecha || !hora) {
-      return res.status(400).json({ ok: false, error: "Faltan datos" });
-    }
-    
-    const fechaHoraProgramada = new Date(`${fecha}T${hora}:00-06:00`);
-    const ahora = new Date();
-    
-    if (fechaHoraProgramada < ahora) {
-      return res.status(400).json({ ok: false, error: "Fecha/hora ya pasó" });
-    }
-    
-    const msHasta = fechaHoraProgramada - ahora;
-    const alertaId = id || Date.now().toString();
-    
-    // Programar Voice Monkey
-    const timeoutId = setTimeout(async () => {
-      try {
-        await fetch(url);
-        console.log(`✅ Voice Monkey ejecutado para ${alertaId}`);
-      } catch (e) {
-        console.error(`❌ Error: ${e.message}`);
-      }
-    }, msHasta);
-    
-    res.json({
-      ok: true,
-      id: alertaId,
-      estado: "programada",
-      msHasta,
-      mensaje: "Alerta programada. Próximamente: recordatorio en Alexa"
-    });
-    
-  } catch (error) {
-    console.error("Error:", error);
-    res.status(500).json({ ok: false, error: error.message });
-  }
-});
-
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor en puerto ${PORT}`);
-  console.log(`📍 URL: https://voice-api-dblt-if6d.onrender.com`);
-  console.log(`🔐 Autenticación: /auth/alexa`);
-});
+        redirect_uri: ALEXA_CONFIG
