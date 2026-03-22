@@ -1,6 +1,5 @@
 const express = require('express');
 const cors = require('cors');
-const axios = require('axios');
 
 const app = express();
 app.use(cors());
@@ -26,7 +25,7 @@ const alertas = new Map();
 const alertaTimeouts = new Map();
 
 // ============================================
-// FUNCIONES DE ALEXA
+// FUNCIONES DE ALEXA (usando fetch nativo)
 // ============================================
 async function getAlexaAccessToken() {
   if (alexaTokens.accessToken && alexaTokens.expiresAt > Date.now()) {
@@ -35,18 +34,21 @@ async function getAlexaAccessToken() {
 
   if (alexaTokens.refreshToken) {
     try {
-      const response = await axios.post('https://api.amazon.com/auth/o2/token', 
-        new URLSearchParams({
+      const response = await fetch('https://api.amazon.com/auth/o2/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
           grant_type: 'refresh_token',
           refresh_token: alexaTokens.refreshToken,
           client_id: ALEXA_CONFIG.clientId,
           client_secret: ALEXA_CONFIG.clientSecret
-        }).toString(),
-        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-      );
+        }).toString()
+      });
       
-      alexaTokens.accessToken = response.data.access_token;
-      alexaTokens.expiresAt = Date.now() + (response.data.expires_in * 1000);
+      const data = await response.json();
+      alexaTokens.accessToken = data.access_token;
+      alexaTokens.refreshToken = data.refresh_token;
+      alexaTokens.expiresAt = Date.now() + (data.expires_in * 1000);
       return alexaTokens.accessToken;
     } catch (error) {
       console.error('Error refrescando token:', error.message);
@@ -82,22 +84,21 @@ async function crearRecordatorioAlexa(mensaje, fecha, hora) {
       }
     };
     
-    const response = await axios.post(
-      'https://api.amazonalexa.com/v2/alerts/reminders',
-      reminderBody,
-      {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
+    const response = await fetch('https://api.amazonalexa.com/v2/alerts/reminders', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(reminderBody)
+    });
     
-    console.log('✅ Recordatorio creado en Alexa:', response.data);
-    return { ok: true, reminderId: response.data.id };
+    const data = await response.json();
+    console.log('✅ Recordatorio creado en Alexa:', data);
+    return { ok: true, reminderId: data.id };
     
   } catch (error) {
-    console.error('❌ Error creando recordatorio:', error.response?.data || error.message);
+    console.error('❌ Error creando recordatorio:', error.message);
     return { ok: false, error: error.message };
   }
 }
@@ -119,21 +120,24 @@ app.get('/auth/alexa/callback', async (req, res) => {
   }
   
   try {
-    const response = await axios.post('https://api.amazon.com/auth/o2/token',
-      new URLSearchParams({
+    const response = await fetch('https://api.amazon.com/auth/o2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
         grant_type: 'authorization_code',
         code: code,
         client_id: ALEXA_CONFIG.clientId,
         client_secret: ALEXA_CONFIG.clientSecret,
         redirect_uri: ALEXA_CONFIG.redirectUri
-      }).toString(),
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-    );
+      }).toString()
+    });
+    
+    const data = await response.json();
     
     alexaTokens = {
-      accessToken: response.data.access_token,
-      refreshToken: response.data.refresh_token,
-      expiresAt: Date.now() + (response.data.expires_in * 1000)
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      expiresAt: Date.now() + (data.expires_in * 1000)
     };
     
     res.send(`
@@ -181,8 +185,7 @@ app.post("/api/voice/programar", async (req, res) => {
     
     const timeoutId = setTimeout(async () => {
       try {
-        const fetch = await import('node-fetch');
-        await fetch.default(url);
+        await fetch(url);
         console.log(`✅ Voice Monkey ejecutado`);
       } catch (e) {
         console.error(`❌ Error: ${e.message}`);
@@ -201,6 +204,7 @@ app.post("/api/voice/programar", async (req, res) => {
     });
     
   } catch (error) {
+    console.error("Error:", error);
     res.status(500).json({ ok: false, error: error.message });
   }
 });
@@ -210,9 +214,7 @@ app.post("/api/voice/disparar-ahora", async (req, res) => {
     const { url, tarjeta } = req.body;
     if (!url) return res.status(400).json({ ok: false, error: "URL requerida" });
     
-    const fetch = await import('node-fetch');
-    await fetch.default(url.trim());
-    
+    await fetch(url.trim());
     res.json({ ok: true, mensaje: "Alerta disparada" });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
