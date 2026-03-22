@@ -12,7 +12,7 @@ const ALEXA_CONFIG = {
   clientId: process.env.ALEXA_CLIENT_ID,
   clientSecret: process.env.ALEXA_CLIENT_SECRET,
   redirectUri: 'https://voice-api-dblt.onrender.com/auth/alexa/callback',
-  scope: 'alexa:alerts:reminders:skill:readwrite alexa::ask:skills:readwrite'
+  scope: 'alexa:alerts:reminders:skill:readwrite'
 };
 
 let alexaTokens = {
