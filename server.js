@@ -13,7 +13,7 @@ const ALEXA_CONFIG = {
   clientSecret: process.env.ALEXA_CLIENT_SECRET,
   redirectUri: 'https://voice-api-dblt-if6d.onrender.com/auth/alexa/callback',
   scope: 'alexa:alerts:reminders:skill:readwrite profile',
-  skillId: 'amzn1.ask.skill.TU_SKILL_ID_AQUI'  // ⚠️ PON TU SKILL ID AQUÍ
+  skillId: 'amzn1.ask.skill.fe1de224-d84d-4911-a588-8a03cdf2540a'  // ⚠️ PON TU SKILL ID AQUÍ
 };
 
 let alexaTokens = {
@@ -137,4 +137,118 @@ app.get('/auth/alexa/callback', async (req, res) => {
         code: code,
         client_id: ALEXA_CONFIG.clientId,
         client_secret: ALEXA_CONFIG.clientSecret,
-        redirect_uri: ALEXA_CONFIG
+        redirect_uri: ALEXA_CONFIG.redirectUri
+      }).toString()
+    });
+    
+    const data = await response.json();
+    
+    alexaTokens = {
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      expiresAt: Date.now() + (data.expires_in * 1000)
+    };
+    
+    res.send(`
+      <html>
+        <body style="font-family: sans-serif; text-align: center; margin-top: 50px;">
+          <h1 style="color: green;">✅ Autenticación exitosa</h1>
+          <p>PayTrack ahora puede crear recordatorios en Alexa.</p>
+          <p>Los recordatorios llegarán a tu teléfono.</p>
+          <p>Ya puedes cerrar esta ventana.</p>
+        </body>
+      </html>
+    `);
+  } catch (error) {
+    res.send('Error: ' + error.message);
+  }
+});
+
+app.get('/auth/status', (req, res) => {
+  const isAuthed = alexaTokens.accessToken && alexaTokens.expiresAt > Date.now();
+  res.json({ 
+    autenticado: isAuthed,
+    expira: alexaTokens.expiresAt ? new Date(alexaTokens.expiresAt).toISOString() : null
+  });
+});
+
+app.post("/api/alexa/prueba-rapida", async (req, res) => {
+  try {
+    const { mensaje } = req.body;
+    const ahora = new Date();
+    ahora.setSeconds(ahora.getSeconds() + 10);
+    const fecha = ahora.toISOString().split('T')[0];
+    const hora = ahora.toTimeString().split(' ')[0].slice(0, 5);
+    
+    console.log(`📅 Programando prueba: ${fecha} ${hora}`);
+    
+    const result = await crearRecordatorioAlexa(mensaje || "Prueba desde PayTrack", fecha, hora);
+    res.json({ ok: result.ok, mensaje: result.ok ? "Recordatorio en 10 segundos" : "Error", detalle: result });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+app.post("/api/voice/programar", async (req, res) => {
+  try {
+    const { url, fecha, hora, tarjeta, id } = req.body;
+    
+    if (!url || !fecha || !hora) {
+      return res.status(400).json({ ok: false, error: "Faltan datos" });
+    }
+    
+    const fechaHoraProgramada = new Date(`${fecha}T${hora}:00-06:00`);
+    const ahora = new Date();
+    
+    if (fechaHoraProgramada < ahora) {
+      return res.status(400).json({ ok: false, error: "Fecha/hora ya pasó" });
+    }
+    
+    const mensajeAlexa = `Recordatorio de pago para ${tarjeta || 'tu tarjeta'}`;
+    const alexaResult = await crearRecordatorioAlexa(mensajeAlexa, fecha, hora);
+    
+    const msHasta = fechaHoraProgramada - ahora;
+    const alertaId = id || Date.now().toString();
+    
+    const timeoutId = setTimeout(async () => {
+      try {
+        await fetch(url);
+        console.log(`✅ Voice Monkey ejecutado`);
+      } catch (e) {
+        console.error(`❌ Error: ${e.message}`);
+      }
+    }, msHasta);
+    
+    alertaTimeouts.set(alertaId, timeoutId);
+    
+    res.json({
+      ok: true,
+      id: alertaId,
+      estado: "programada",
+      msHasta,
+      alexa: alexaResult.ok ? "recordatorio_creado" : "fallo"
+    });
+    
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+app.post("/api/voice/disparar-ahora", async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ ok: false, error: "URL requerida" });
+    await fetch(url.trim());
+    res.json({ ok: true, mensaje: "Alerta disparada" });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+  console.log(`🚀 Servidor en puerto ${PORT}`);
+  console.log(`📍 URL: https://voice-api-dblt-if6d.onrender.com`);
+  console.log(`🔐 Autenticación: /auth/alexa`);
+});
