@@ -15,9 +15,9 @@ app.use(express.json());
 
 // ✅ NUEVO: Configuración para la Skill (token fijo)
 const SKILL_CONFIG = {
-  clientId: process.env.SKILL_CLIENT_ID || 'amzn1.application-oa2-client.489d08207996477db0b5f77f5c7ad0b3',
-  clientSecret: process.env.SKILL_CLIENT_SECRET,
-  skillId: process.env.SKILL_ID || 'amzn1.ask.skill.339012d5-c0e2-470b-8460-6d109c84360f'
+  clientId: process.env.ALEXA_CLIENT_ID || 'amzn1.application-oa2-client.489d08207996477db0b5f77f5c7ad0b3',
+  clientSecret: process.env.ALEXA_CLIENT_SECRET,
+  skillId: process.env.SKILL_ID || 'amzn1.ask.skill.e45b8ac0-710d-4af2-865d-3304acba8cc8'
 };
 
 // ✅ NUEVO: Token fijo de la Skill (se obtiene una vez y se renueva automáticamente)
