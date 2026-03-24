@@ -6,17 +6,38 @@ app.use(cors());
 app.use(express.json());
 
 // ============================================
-// CONFIGURACIÓN DE ALEXA - SCOPE CORREGIDO
+// CONFIGURACIÓN DE ALEXA - NUEVA ESTRATEGIA
 // ============================================
-const ALEXA_CONFIG = {
+// 🔄 CAMBIO: Ya no usamos ALEXA_CONFIG para autenticación de usuarios,
+//            sino que usamos credenciales fijas de la Skill para crear recordatorios.
+//            La autenticación de usuarios es OPCIONAL (para identificar al usuario,
+//            pero NO para crear recordatorios).
+
+// ✅ NUEVO: Configuración para la Skill (token fijo)
+const SKILL_CONFIG = {
+  clientId: process.env.SKILL_CLIENT_ID || 'amzn1.application-oa2-client.489d08207996477db0b5f77f5c7ad0b3',
+  clientSecret: process.env.SKILL_CLIENT_SECRET,
+  skillId: process.env.SKILL_ID || 'amzn1.ask.skill.339012d5-c0e2-470b-8460-6d109c84360f'
+};
+
+// ✅ NUEVO: Token fijo de la Skill (se obtiene una vez y se renueva automáticamente)
+let skillAccessToken = {
+  token: null,
+  expiresAt: null
+};
+
+// 🔄 CAMBIO: Configuración de autenticación de usuarios (ahora es OPCIONAL)
+//            Se mantiene para que los usuarios puedan iniciar sesión, pero no es necesario
+//            para crear recordatorios.
+const USER_AUTH_CONFIG = {
   clientId: process.env.ALEXA_CLIENT_ID,
   clientSecret: process.env.ALEXA_CLIENT_SECRET,
   redirectUri: 'https://voice-api-dblt-if6d.onrender.com/auth/alexa/callback',
-  scope: 'profile'  // ← Solo profile, sin el scope de recordatorios
+  scope: 'profile'  // Solo profile, sin recordatorios (no los necesitamos aquí)
 };
 
-// Almacenamiento de tokens
-let alexaTokens = {
+// Almacenamiento de tokens de usuarios (opcional)
+let userTokens = {
   accessToken: null,
   refreshToken: null,
   expiresAt: null
@@ -27,45 +48,55 @@ const alertas = new Map();
 const alertaTimeouts = new Map();
 
 // ============================================
-// FUNCIONES DE ALEXA
+// FUNCIONES DE ALEXA - NUEVA VERSIÓN CON TOKEN FIJO DE SKILL
 // ============================================
 
-async function getAlexaAccessToken() {
-  // Si hay token válido, usarlo
-  if (alexaTokens.accessToken && alexaTokens.expiresAt > Date.now()) {
-    return alexaTokens.accessToken;
+// ✅ NUEVO: Obtener token de la Skill (usando client_credentials)
+async function getSkillAccessToken() {
+  // Si el token aún es válido, devolverlo
+  if (skillAccessToken.token && skillAccessToken.expiresAt > Date.now()) {
+    return skillAccessToken.token;
   }
 
-  // Si hay refresh token, renovar
-  if (alexaTokens.refreshToken) {
-    try {
-      const response = await fetch('https://api.amazon.com/auth/o2/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          grant_type: 'refresh_token',
-          refresh_token: alexaTokens.refreshToken,
-          client_id: ALEXA_CONFIG.clientId,
-          client_secret: ALEXA_CONFIG.clientSecret
-        }).toString()
-      });
-      
-      const data = await response.json();
-      alexaTokens.accessToken = data.access_token;
-      alexaTokens.refreshToken = data.refresh_token;
-      alexaTokens.expiresAt = Date.now() + (data.expires_in * 1000);
-      return alexaTokens.accessToken;
-    } catch (error) {
-      console.error('Error refrescando token:', error.message);
+  try {
+    console.log('🔄 Obteniendo nuevo token de Skill...');
+    
+    const response = await fetch('https://api.amazon.com/auth/o2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: SKILL_CONFIG.clientId,
+        client_secret: SKILL_CONFIG.clientSecret,
+        scope: 'alexa::skill:reminders'  // ← Scope correcto para recordatorios
+      }).toString()
+    });
+    
+    const data = await response.json();
+    
+    if (data.error) {
+      throw new Error(data.error_description || data.error);
     }
+    
+    skillAccessToken = {
+      token: data.access_token,
+      expiresAt: Date.now() + (data.expires_in * 1000)
+    };
+    
+    console.log('✅ Token de Skill obtenido, expira en:', data.expires_in, 'segundos');
+    return skillAccessToken.token;
+    
+  } catch (error) {
+    console.error('❌ Error obteniendo token de Skill:', error.message);
+    throw new Error('No se pudo obtener token de Skill. Verifica SKILL_CLIENT_ID y SKILL_CLIENT_SECRET');
   }
-  
-  throw new Error('No hay token. Visita /auth/alexa');
 }
 
+// ✅ NUEVO: Crear recordatorio usando el token fijo de la Skill
+//           Esta función NO necesita que el usuario esté autenticado
 async function crearRecordatorioAlexa(mensaje, fecha, hora) {
   try {
-    const accessToken = await getAlexaAccessToken();
+    const accessToken = await getSkillAccessToken();
     
     // Formato de fecha/hora para CDMX (UTC-6)
     const scheduledTime = `${fecha}T${hora}:00.000-06:00`;
@@ -88,7 +119,11 @@ async function crearRecordatorioAlexa(mensaje, fecha, hora) {
       pushNotification: { status: "ENABLED" }
     };
     
-    const response = await fetch('https://api.amazonalexa.com/v2/alerts/reminders', {
+    // ✅ NUEVO: Usar endpoint con skillId y usuario comodín (*)
+    //           Esto crea recordatorios para TODOS los usuarios que tengan la skill instalada
+    const url = `https://api.amazonalexa.com/v1/skills/${SKILL_CONFIG.skillId}/users/*/reminders`;
+    
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -114,6 +149,40 @@ async function crearRecordatorioAlexa(mensaje, fecha, hora) {
 }
 
 // ============================================
+// FUNCIONES DE AUTENTICACIÓN DE USUARIOS (OPCIONAL)
+// ============================================
+// Estas funciones se mantienen por si quieres identificar usuarios,
+// pero NO son necesarias para crear recordatorios.
+
+async function getUserAccessToken() {
+  if (userTokens.accessToken && userTokens.expiresAt > Date.now()) {
+    return userTokens.accessToken;
+  }
+  if (userTokens.refreshToken) {
+    try {
+      const response = await fetch('https://api.amazon.com/auth/o2/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'refresh_token',
+          refresh_token: userTokens.refreshToken,
+          client_id: USER_AUTH_CONFIG.clientId,
+          client_secret: USER_AUTH_CONFIG.clientSecret
+        }).toString()
+      });
+      const data = await response.json();
+      userTokens.accessToken = data.access_token;
+      userTokens.refreshToken = data.refresh_token;
+      userTokens.expiresAt = Date.now() + (data.expires_in * 1000);
+      return userTokens.accessToken;
+    } catch (error) {
+      console.error('Error refrescando token:', error.message);
+    }
+  }
+  throw new Error('No hay token de usuario. Visita /auth/alexa');
+}
+
+// ============================================
 // ENDPOINTS
 // ============================================
 
@@ -130,21 +199,8 @@ app.get('/privacy', (req, res) => {
         <meta charset="UTF-8">
         <title>Política de Privacidad - PayTrack</title>
         <style>
-          body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f5f5;
-            color: #333;
-          }
-          .container {
-            background: white;
-            border-radius: 10px;
-            padding: 30px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-          }
+          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; background-color: #f5f5f5; color: #333; }
+          .container { background: white; border-radius: 10px; padding: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
           h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
           h2 { color: #34495e; margin-top: 20px; }
           .date { color: #7f8c8d; font-size: 0.9em; margin-bottom: 20px; }
@@ -155,55 +211,35 @@ app.get('/privacy', (req, res) => {
         <div class="container">
           <h1>Política de Privacidad de PayTrack</h1>
           <div class="date">Última actualización: 24 de marzo de 2026</div>
-          
           <h2>1. Información que recopilamos</h2>
-          <p>PayTrack es una aplicación de gestión de pagos con tarjetas de crédito. Para funcionar, solicitamos acceso a tu cuenta de Amazon exclusivamente para:</p>
-          <ul>
-            <li>Crear recordatorios de pago en tu dispositivo Alexa</li>
-            <li>Enviar notificaciones a tu teléfono a través de la app de Alexa</li>
-          </ul>
-          
+          <p>PayTrack es una aplicación de gestión de pagos con tarjetas de crédito. Para funcionar, utilizamos la API de Alexa para crear recordatorios.</p>
           <h2>2. Cómo usamos tu información</h2>
-          <p>La información que recopilamos se utiliza únicamente para:</p>
-          <ul>
-            <li>Programar recordatorios de pago en la fecha y hora que selecciones</li>
-            <li>Enviar notificaciones sobre tus pagos pendientes</li>
-          </ul>
-          <p><strong>No almacenamos ni compartimos información personal.</strong> Los tokens de autenticación se guardan temporalmente en el servidor para mantener tu sesión activa.</p>
-          
+          <p>La información que recopilamos se utiliza únicamente para programar recordatorios de pago en la fecha y hora que selecciones.</p>
+          <p><strong>No almacenamos ni compartimos información personal.</strong></p>
           <h2>3. Seguridad</h2>
-          <p>Implementamos medidas de seguridad para proteger tu información. Tu cuenta de Amazon utiliza autenticación OAuth 2.0, lo que significa que <strong>nunca compartimos tu contraseña</strong> con PayTrack.</p>
-          
+          <p>Implementamos medidas de seguridad para proteger tu información. Utilizamos autenticación segura con Amazon.</p>
           <h2>4. Tus derechos</h2>
           <p>Puedes revocar el acceso de PayTrack a tu cuenta de Amazon en cualquier momento desde la configuración de tu cuenta de Amazon.</p>
-          
           <h2>5. Contacto</h2>
           <p>Si tienes preguntas sobre esta política de privacidad, puedes contactarnos en: <strong>soporte@paytrack.com</strong></p>
-          
-          <footer>
-            <p>PayTrack - Gestión de pagos con tarjetas de crédito</p>
-          </footer>
+          <footer><p>PayTrack - Gestión de pagos con tarjetas de crédito</p></footer>
         </div>
       </body>
     </html>
   `);
 });
 
-// Iniciar autenticación con Amazon
+// Endpoint de autenticación de usuarios (OPCIONAL - ya no es necesaria para recordatorios)
 app.get('/auth/alexa', (req, res) => {
-  const authUrl = `https://www.amazon.com/ap/oa?client_id=${ALEXA_CONFIG.clientId}&scope=${encodeURIComponent(ALEXA_CONFIG.scope)}&response_type=code&redirect_uri=${encodeURIComponent(ALEXA_CONFIG.redirectUri)}`;
+  const authUrl = `https://www.amazon.com/ap/oa?client_id=${USER_AUTH_CONFIG.clientId}&scope=${encodeURIComponent(USER_AUTH_CONFIG.scope)}&response_type=code&redirect_uri=${encodeURIComponent(USER_AUTH_CONFIG.redirectUri)}`;
   console.log('🔐 Redirigiendo a:', authUrl);
   res.redirect(authUrl);
 });
 
-// Callback después de autenticación
+// Callback de autenticación (OPCIONAL)
 app.get('/auth/alexa/callback', async (req, res) => {
   const { code } = req.query;
-  
-  if (!code) {
-    return res.send('Error: No se recibió código de autorización');
-  }
-  
+  if (!code) return res.send('Error: No se recibió código');
   try {
     const response = await fetch('https://api.amazon.com/auth/o2/token', {
       method: 'POST',
@@ -211,65 +247,32 @@ app.get('/auth/alexa/callback', async (req, res) => {
       body: new URLSearchParams({
         grant_type: 'authorization_code',
         code: code,
-        client_id: ALEXA_CONFIG.clientId,
-        client_secret: ALEXA_CONFIG.clientSecret,
-        redirect_uri: ALEXA_CONFIG.redirectUri
+        client_id: USER_AUTH_CONFIG.clientId,
+        client_secret: USER_AUTH_CONFIG.clientSecret,
+        redirect_uri: USER_AUTH_CONFIG.redirectUri
       }).toString()
     });
-    
     const data = await response.json();
-    
-    if (data.error) {
-      throw new Error(data.error_description || data.error);
-    }
-    
-    alexaTokens = {
+    if (data.error) throw new Error(data.error_description || data.error);
+    userTokens = {
       accessToken: data.access_token,
       refreshToken: data.refresh_token,
       expiresAt: Date.now() + (data.expires_in * 1000)
     };
-    
-    console.log('✅ Token guardado, expira en:', data.expires_in, 'segundos');
-    
-    res.send(`
-      <html>
-        <head>
-          <meta charset="UTF-8">
-          <title>Autenticación Exitosa</title>
-          <style>
-            body { font-family: sans-serif; text-align: center; margin-top: 50px; background: #f5f5f5; }
-            .container { background: white; border-radius: 10px; padding: 30px; max-width: 500px; margin: 0 auto; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-            h1 { color: #2ecc71; }
-            p { color: #555; line-height: 1.6; }
-            .button { background: #3498db; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 20px; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <h1>✅ Autenticación exitosa</h1>
-            <p>PayTrack ahora puede crear recordatorios en Alexa.</p>
-            <p>Los recordatorios llegarán a tu teléfono a través de la app de Alexa.</p>
-            <p><strong>Ya puedes cerrar esta ventana</strong> y volver a tu aplicación.</p>
-          </div>
-        </body>
-      </html>
-    `);
+    console.log('✅ Usuario autenticado, expira en:', data.expires_in, 'segundos');
+    res.send(`<html><body style="text-align:center;margin-top:50px;"><h1 style="color:green;">✅ Autenticación exitosa</h1><p>Ya puedes cerrar esta ventana.</p></body></html>`);
   } catch (error) {
-    console.error('Error en callback:', error.message);
     res.send(`<h1>Error</h1><p>${error.message}</p>`);
   }
 });
 
-// Verificar estado de autenticación
+// Verificar estado de autenticación de usuario (OPCIONAL)
 app.get('/auth/status', (req, res) => {
-  const isAuthed = alexaTokens.accessToken && alexaTokens.expiresAt > Date.now();
-  res.json({ 
-    autenticado: isAuthed,
-    expira: alexaTokens.expiresAt ? new Date(alexaTokens.expiresAt).toISOString() : null
-  });
+  const isAuthed = userTokens.accessToken && userTokens.expiresAt > Date.now();
+  res.json({ autenticado: isAuthed, expira: userTokens.expiresAt ? new Date(userTokens.expiresAt).toISOString() : null });
 });
 
-// PRUEBA RÁPIDA - crea un recordatorio en 10 segundos
+// PRUEBA RÁPIDA - crea un recordatorio en 10 segundos usando el token de Skill
 app.post('/api/alexa/prueba-rapida', async (req, res) => {
   try {
     const { mensaje } = req.body;
@@ -303,7 +306,7 @@ app.post('/api/voice/programar', async (req, res) => {
       return res.status(400).json({ ok: false, error: "Fecha/hora ya pasó" });
     }
     
-    // Crear recordatorio en Alexa
+    // ✅ NUEVO: Crear recordatorio usando el token fijo de la Skill
     const mensajeAlexa = `Recordatorio de pago para ${tarjeta || 'tu tarjeta'}`;
     const alexaResult = await crearRecordatorioAlexa(mensajeAlexa, fecha, hora);
     
@@ -343,7 +346,6 @@ app.post('/api/voice/disparar-ahora', async (req, res) => {
   try {
     const { url } = req.body;
     if (!url) return res.status(400).json({ ok: false, error: "URL requerida" });
-    
     await fetch(url.trim());
     console.log('✅ Alerta disparada inmediatamente');
     res.json({ ok: true, mensaje: "Alerta disparada" });
@@ -358,8 +360,9 @@ const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
   console.log(`📍 URL: https://voice-api-dblt-if6d.onrender.com`);
-  console.log(`🔐 Autenticación: /auth/alexa`);
-  console.log(`📊 Estado: /auth/status`);
+  console.log(`🔐 Autenticación de usuarios (opcional): /auth/alexa`);
+  console.log(`📊 Estado usuario: /auth/status`);
   console.log(`🧪 Prueba rápida: POST /api/alexa/prueba-rapida`);
   console.log(`📋 Política de privacidad: /privacy`);
+  console.log(`✅ Usando token fijo de Skill para recordatorios`);
 });
