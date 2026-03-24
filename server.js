@@ -122,6 +122,73 @@ app.get("/", (req, res) => {
   res.json({ ok: true, mensaje: "API de PayTrack funcionando" });
 });
 
+// Endpoint de política de privacidad
+app.get('/privacy', (req, res) => {
+  res.send(`
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Política de Privacidad - PayTrack</title>
+        <style>
+          body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+          }
+          .container {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+          }
+          h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+          h2 { color: #34495e; margin-top: 20px; }
+          .date { color: #7f8c8d; font-size: 0.9em; margin-bottom: 20px; }
+          footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 0.8em; color: #7f8c8d; text-align: center; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <h1>Política de Privacidad de PayTrack</h1>
+          <div class="date">Última actualización: 24 de marzo de 2026</div>
+          
+          <h2>1. Información que recopilamos</h2>
+          <p>PayTrack es una aplicación de gestión de pagos con tarjetas de crédito. Para funcionar, solicitamos acceso a tu cuenta de Amazon exclusivamente para:</p>
+          <ul>
+            <li>Crear recordatorios de pago en tu dispositivo Alexa</li>
+            <li>Enviar notificaciones a tu teléfono a través de la app de Alexa</li>
+          </ul>
+          
+          <h2>2. Cómo usamos tu información</h2>
+          <p>La información que recopilamos se utiliza únicamente para:</p>
+          <ul>
+            <li>Programar recordatorios de pago en la fecha y hora que selecciones</li>
+            <li>Enviar notificaciones sobre tus pagos pendientes</li>
+          </ul>
+          <p><strong>No almacenamos ni compartimos información personal.</strong> Los tokens de autenticación se guardan temporalmente en el servidor para mantener tu sesión activa.</p>
+          
+          <h2>3. Seguridad</h2>
+          <p>Implementamos medidas de seguridad para proteger tu información. Tu cuenta de Amazon utiliza autenticación OAuth 2.0, lo que significa que <strong>nunca compartimos tu contraseña</strong> con PayTrack.</p>
+          
+          <h2>4. Tus derechos</h2>
+          <p>Puedes revocar el acceso de PayTrack a tu cuenta de Amazon en cualquier momento desde la configuración de tu cuenta de Amazon.</p>
+          
+          <h2>5. Contacto</h2>
+          <p>Si tienes preguntas sobre esta política de privacidad, puedes contactarnos en: <strong>soporte@paytrack.com</strong></p>
+          
+          <footer>
+            <p>PayTrack - Gestión de pagos con tarjetas de crédito</p>
+          </footer>
+        </div>
+      </body>
+    </html>
+  `);
+});
+
 // Iniciar autenticación con Amazon
 app.get('/auth/alexa', (req, res) => {
   const authUrl = `https://www.amazon.com/ap/oa?client_id=${ALEXA_CONFIG.clientId}&scope=${encodeURIComponent(ALEXA_CONFIG.scope)}&response_type=code&redirect_uri=${encodeURIComponent(ALEXA_CONFIG.redirectUri)}`;
@@ -166,11 +233,24 @@ app.get('/auth/alexa/callback', async (req, res) => {
     
     res.send(`
       <html>
-        <body style="font-family: sans-serif; text-align: center; margin-top: 50px;">
-          <h1 style="color: green;">✅ Autenticación exitosa</h1>
-          <p>PayTrack ahora puede crear recordatorios en Alexa.</p>
-          <p>Los recordatorios llegarán a tu teléfono a través de la app de Alexa.</p>
-          <p>Ya puedes cerrar esta ventana y volver a tu app.</p>
+        <head>
+          <meta charset="UTF-8">
+          <title>Autenticación Exitosa</title>
+          <style>
+            body { font-family: sans-serif; text-align: center; margin-top: 50px; background: #f5f5f5; }
+            .container { background: white; border-radius: 10px; padding: 30px; max-width: 500px; margin: 0 auto; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            h1 { color: #2ecc71; }
+            p { color: #555; line-height: 1.6; }
+            .button { background: #3498db; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 20px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <h1>✅ Autenticación exitosa</h1>
+            <p>PayTrack ahora puede crear recordatorios en Alexa.</p>
+            <p>Los recordatorios llegarán a tu teléfono a través de la app de Alexa.</p>
+            <p><strong>Ya puedes cerrar esta ventana</strong> y volver a tu aplicación.</p>
+          </div>
         </body>
       </html>
     `);
@@ -281,4 +361,5 @@ app.listen(PORT, () => {
   console.log(`🔐 Autenticación: /auth/alexa`);
   console.log(`📊 Estado: /auth/status`);
   console.log(`🧪 Prueba rápida: POST /api/alexa/prueba-rapida`);
+  console.log(`📋 Política de privacidad: /privacy`);
 });
