@@ -1,5 +1,6 @@
 // ============================================
-// SERVIDOR DE PAYTRACK CON LOGS DE DEPURACIÓN
+// SERVIDOR DE PAYTRACK
+// Con diagnóstico de ntfy.sh y token en URL
 // ============================================
 
 const express = require('express');
@@ -19,21 +20,26 @@ const NTFY_TOPIC = 'paytrack_deozlink';
 // TOKEN: créalo en https://ntfy.sh/app → Account → Access tokens
 const NTFY_TOKEN = 'tk_duwqyl6xrt8bh510p5b23xysy7ser';
 
+// MODO: 'header' o 'url' (probar ambos)
+// 'header' - envía token en Authorization header
+// 'url'    - envía token en la URL (?auth=token)
+const NTFY_MODE = process.env.NTFY_MODE || 'url'; // Cambiar a 'header' si no funciona
+
 console.log('\n========================================');
 console.log('🔧 CONFIGURACIÓN DE NTFY.SH');
 console.log('========================================');
 console.log(`📱 Tema: ${NTFY_TOPIC}`);
 console.log(`🔑 Token: ${NTFY_TOKEN ? NTFY_TOKEN.substring(0, 15) + '...' : '❌ NO CONFIGURADO'}`);
-console.log(`📏 Longitud token: ${NTFY_TOKEN ? NTFY_TOKEN.length : 0} caracteres`);
+console.log(`📡 Modo de envío: ${NTFY_MODE === 'url' ? 'URL (?auth=token)' : 'Header (Authorization: Bearer)'}`);
 console.log('========================================\n');
 
 // ============================================
-// FUNCIÓN PRINCIPAL: ENVIAR NOTIFICACIÓN CON LOGS
+// FUNCIÓN PRINCIPAL: ENVIAR NOTIFICACIÓN
 // ============================================
 
 /**
  * Envía una notificación push al teléfono usando ntfy.sh
- * Con logs detallados para depuración
+ * Soporta dos modos: token en header o token en URL
  */
 async function enviarNotificacion(mensaje, fecha, hora, tarjeta = '') {
   const startTime = Date.now();
@@ -41,21 +47,15 @@ async function enviarNotificacion(mensaje, fecha, hora, tarjeta = '') {
   try {
     // Validar configuración
     if (!NTFY_TOKEN) {
-      console.error('❌ ERROR CRÍTICO: NTFY_TOKEN no está configurado');
+      console.error('❌ ERROR: NTFY_TOKEN no está configurado');
       return { ok: false, error: 'Token no configurado' };
-    }
-    
-    if (!NTFY_TOPIC) {
-      console.error('❌ ERROR CRÍTICO: NTFY_TOPIC no está configurado');
-      return { ok: false, error: 'Tema no configurado' };
     }
     
     console.log('\n📤 ========== ENVIANDO NOTIFICACIÓN ==========');
     console.log(`📅 Fecha/Hora: ${fecha} ${hora}`);
     console.log(`💳 Tarjeta: ${tarjeta || 'No especificada'}`);
     console.log(`📝 Mensaje: ${mensaje}`);
-    console.log(`🔑 Token usado: ${NTFY_TOKEN.substring(0, 10)}...`);
-    console.log(`📱 Tema: ${NTFY_TOPIC}`);
+    console.log(`📡 Modo: ${NTFY_MODE === 'url' ? 'URL con token' : 'Header con token'}`);
     
     // Construir el cuerpo del mensaje
     const texto = `${mensaje}
@@ -68,181 +68,221 @@ PayTrack - Gestión de pagos`;
 
     console.log(`📦 Tamaño del mensaje: ${texto.length} caracteres`);
     
-    // Construir la URL
+    // ============================================
+    // MODO 1: Token en URL (?auth=token)
+    // ============================================
+    if (NTFY_MODE === 'url') {
+      const url = `https://ntfy.sh/${NTFY_TOPIC}?auth=${NTFY_TOKEN}`;
+      console.log(`🌐 URL: ${url.substring(0, 60)}...`);
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Title': 'PayTrack - Recordatorio',
+          'Priority': 'high',
+          'Tags': 'credit_card,money'
+        },
+        body: texto
+      });
+      
+      const elapsedTime = Date.now() - startTime;
+      console.log(`⏱️  Respuesta en ${elapsedTime}ms`);
+      console.log(`📥 Status: ${response.status} ${response.statusText}`);
+      
+      const responseText = await response.text();
+      console.log(`📥 Respuesta: ${responseText.substring(0, 200)}`);
+      
+      if (response.ok) {
+        console.log(`✅ NOTIFICACIÓN ENVIADA (modo URL)`);
+        return { ok: true, mode: 'url' };
+      }
+      
+      console.error(`❌ ERROR ${response.status}`);
+      return { ok: false, error: `Error ${response.status}: ${responseText.substring(0, 100)}` };
+    }
+    
+    // ============================================
+    // MODO 2: Token en Header Authorization
+    // ============================================
     const url = `https://ntfy.sh/${NTFY_TOPIC}`;
-    console.log(`🌐 URL destino: ${url}`);
+    console.log(`🌐 URL: ${url}`);
     
-    // Preparar headers
-    const headers = {
-      'Authorization': `Bearer ${NTFY_TOKEN}`,
-      'Title': 'PayTrack - Recordatorio',
-      'Priority': 'high',
-      'Tags': 'credit_card,money'
-    };
-    
-    console.log(`📋 Headers enviados:`);
-    console.log(`   Authorization: Bearer ${NTFY_TOKEN.substring(0, 15)}...`);
-    console.log(`   Title: ${headers.Title}`);
-    console.log(`   Priority: ${headers.Priority}`);
-    console.log(`   Tags: ${headers.Tags}`);
-    
-    // Enviar la petición
-    console.log(`⏳ Enviando petición...`);
     const response = await fetch(url, {
       method: 'POST',
-      headers: headers,
+      headers: {
+        'Authorization': `Bearer ${NTFY_TOKEN}`,
+        'Title': 'PayTrack - Recordatorio',
+        'Priority': 'high',
+        'Tags': 'credit_card,money'
+      },
       body: texto
     });
     
     const elapsedTime = Date.now() - startTime;
-    console.log(`⏱️  Respuesta recibida en ${elapsedTime}ms`);
-    console.log(`📥 Status code: ${response.status} ${response.statusText}`);
+    console.log(`⏱️  Respuesta en ${elapsedTime}ms`);
+    console.log(`📥 Status: ${response.status} ${response.statusText}`);
     
-    // Leer la respuesta
     const responseText = await response.text();
-    console.log(`📥 Respuesta cuerpo: ${responseText.substring(0, 300)}`);
+    console.log(`📥 Respuesta: ${responseText.substring(0, 200)}`);
     
     if (response.ok) {
-      console.log(`✅ NOTIFICACIÓN ENVIADA CON ÉXITO!`);
-      console.log('========================================\n');
-      return { ok: true, response: responseText };
+      console.log(`✅ NOTIFICACIÓN ENVIADA (modo header)`);
+      return { ok: true, mode: 'header' };
     }
     
-    // Error específico 429
-    if (response.status === 429) {
-      console.error(`❌ ERROR 429: Límite de mensajes alcanzado`);
-      console.error(`   Esto puede ser porque:`);
-      console.error(`   1. El token no se está aplicando correctamente`);
-      console.error(`   2. La IP de Render está bloqueada`);
-      console.error(`   3. El token expiró o es inválido`);
-      console.error(`📊 Solución: Crear un nuevo token en https://ntfy.sh/app`);
-    }
-    
-    console.error(`❌ ERROR: ${response.status} - ${responseText.substring(0, 200)}`);
-    console.log('========================================\n');
+    console.error(`❌ ERROR ${response.status}`);
     return { ok: false, error: `Error ${response.status}: ${responseText.substring(0, 100)}` };
     
   } catch (error) {
     const elapsedTime = Date.now() - startTime;
-    console.error(`❌ ERROR DE RED después de ${elapsedTime}ms:`);
-    console.error(`   Tipo: ${error.name}`);
-    console.error(`   Mensaje: ${error.message}`);
-    console.error(`   Stack: ${error.stack?.substring(0, 200)}`);
-    console.log('========================================\n');
+    console.error(`❌ ERROR DE RED después de ${elapsedTime}ms: ${error.message}`);
     return { ok: false, error: error.message };
   }
 }
 
 // ============================================
-// ENDPOINTS PÚBLICOS
+// ENDPOINT DE DIAGNÓSTICO
 // ============================================
 
 /**
- * Endpoint principal - Verificar que el servidor funciona
+ * Prueba directa a ntfy.sh para verificar si el token funciona
+ * Visita: /test-ntfy
  */
+app.get('/test-ntfy', async (req, res) => {
+  console.log('\n🔍 ========== TEST NTFY ==========');
+  console.log(`📡 Modo: ${NTFY_MODE === 'url' ? 'URL con token' : 'Header con token'}`);
+  
+  try {
+    let response;
+    
+    if (NTFY_MODE === 'url') {
+      const url = `https://ntfy.sh/${NTFY_TOPIC}?auth=${NTFY_TOKEN}`;
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Title': 'Test Diagnóstico',
+          'Priority': 'low'
+        },
+        body: 'Mensaje de prueba desde /test-ntfy'
+      });
+    } else {
+      response = await fetch(`https://ntfy.sh/${NTFY_TOPIC}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${NTFY_TOKEN}`,
+          'Title': 'Test Diagnóstico',
+          'Priority': 'low'
+        },
+        body: 'Mensaje de prueba desde /test-ntfy'
+      });
+    }
+    
+    const result = {
+      status: response.status,
+      ok: response.ok,
+      statusText: response.statusText,
+      body: await response.text(),
+      mode: NTFY_MODE,
+      topic: NTFY_TOPIC,
+      token_prefix: NTFY_TOKEN.substring(0, 10) + '...',
+      sugerencia: response.status === 429 ? 'El token no se está aplicando. Cambia NTFY_MODE a "url" o "header"' : null
+    };
+    
+    console.log(`📥 Status: ${result.status}`);
+    console.log(`📥 Body: ${result.body.substring(0, 200)}`);
+    console.log('========================================\n');
+    
+    res.json(result);
+  } catch (error) {
+    console.error(`❌ Error en test: ${error.message}`);
+    res.json({ error: error.message, mode: NTFY_MODE });
+  }
+});
+
+// ============================================
+// ENDPOINT PARA CAMBIAR MODO SIN REDEPLOY
+// ============================================
+
+/**
+ * Cambia el modo de envío (header o url)
+ * Visita: /set-mode?mode=url  o /set-mode?mode=header
+ */
+let currentMode = NTFY_MODE;
+
+app.get('/set-mode', (req, res) => {
+  const { mode } = req.query;
+  if (mode === 'url' || mode === 'header') {
+    currentMode = mode;
+    // Sobrescribir para esta ejecución
+    Object.defineProperty(global, 'NTFY_MODE', { value: mode, writable: true });
+    res.json({ ok: true, mode: currentMode, mensaje: `Modo cambiado a ${mode}. Prueba /test-ntfy nuevamente.` });
+  } else {
+    res.json({ ok: false, error: 'Modo inválido. Usa ?mode=url o ?mode=header' });
+  }
+});
+
+// ============================================
+// ENDPOINTS PÚBLICOS
+// ============================================
+
 app.get("/", (req, res) => {
   res.json({ 
     ok: true, 
     mensaje: "API de PayTrack funcionando",
     ntfy_topic: NTFY_TOPIC,
+    ntfy_mode: currentMode,
     token_configurado: !!NTFY_TOKEN,
-    token_longitud: NTFY_TOKEN ? NTFY_TOKEN.length : 0,
-    instrucciones: "Suscríbete en la app ntfy con este tema para recibir notificaciones"
+    diagnosticar: "/test-ntfy",
+    cambiar_modo: "/set-mode?mode=url o ?mode=header"
   });
 });
 
-/**
- * Política de privacidad
- */
 app.get('/privacy', (req, res) => {
   res.send(`
     <html>
-      <head><meta charset="UTF-8"><title>Política de Privacidad - PayTrack</title></head>
       <body style="font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px;">
         <h1>Política de Privacidad - PayTrack</h1>
-        <p>Última actualización: 24 de marzo de 2026</p>
-        
-        <h2>1. Información que recopilamos</h2>
-        <p>PayTrack utiliza ntfy.sh para enviar notificaciones a tu teléfono sobre recordatorios de pago.</p>
-        <p>No almacenamos información personal.</p>
-        
-        <h2>2. Cómo usamos tu información</h2>
-        <p>Las notificaciones contienen información sobre tus pagos pendientes (tarjeta, fecha, hora).</p>
-        
-        <h2>3. Seguridad</h2>
-        <p>Las comunicaciones con ntfy.sh son encriptadas mediante HTTPS.</p>
-        
-        <h2>4. Contacto</h2>
-        <p>soporte@paytrack.com</p>
+        <p>PayTrack utiliza ntfy.sh para enviar notificaciones a tu teléfono.</p>
+        <p>Contacto: soporte@paytrack.com</p>
       </body>
     </html>
   `);
 });
 
-/**
- * Endpoint para diagnosticar el tema
- */
-app.get('/topic', (req, res) => {
-  res.json({
-    topic: NTFY_TOPIC,
-    subscribe_url: `https://ntfy.sh/${NTFY_TOPIC}`,
-    token_configurado: !!NTFY_TOKEN,
-    app: "Descarga la app ntfy en tu teléfono y suscríbete a este tema",
-    test_url: `https://ntfy.sh/${NTFY_TOPIC}`,
-    test_command: `curl -H "Authorization: Bearer ${NTFY_TOKEN}" -H "Title: Test" -d "Mensaje de prueba" https://ntfy.sh/${NTFY_TOPIC}`
-  });
-});
-
 // ============================================
-// ENDPOINTS DE PRUEBA Y PROGRAMACIÓN
+// PRUEBA RÁPIDA
 // ============================================
 
-/**
- * PRUEBA RÁPIDA - Envía una notificación inmediata con logs
- */
 app.post('/api/alexa/prueba-rapida', async (req, res) => {
-  const requestId = Date.now();
-  console.log(`\n🔔 ========== PRUEBA RÁPIDA #${requestId} ==========`);
-  console.log(`📨 Body recibido:`, req.body);
-  
   try {
     const { mensaje } = req.body;
     const ahora = new Date();
     const fecha = ahora.toISOString().split('T')[0];
     const hora = ahora.toTimeString().split(' ')[0].slice(0, 5);
     
-    console.log(`📅 Fecha/hora local: ${fecha} ${hora}`);
-    
     const result = await enviarNotificacion(
-      mensaje || "🔔 Prueba de PayTrack",
+      mensaje || "Prueba de PayTrack",
       fecha,
       hora,
       "Prueba"
     );
     
-    console.log(`📊 Resultado final: ${result.ok ? 'ÉXITO' : 'FALLO'}`);
-    console.log(`========================================\n`);
-    
     res.json({ 
       ok: result.ok, 
       mensaje: result.ok ? "Notificación enviada" : "Error",
-      detalle: result,
-      request_id: requestId
+      modo_usado: result.mode,
+      detalle: result 
     });
   } catch (error) {
-    console.error(`❌ Error en prueba rápida:`, error);
-    res.status(500).json({ ok: false, error: error.message, request_id: requestId });
+    res.status(500).json({ ok: false, error: error.message });
   }
 });
 
-/**
- * PROGRAMAR ALERTA
- */
+// ============================================
+// PROGRAMAR ALERTA
+// ============================================
+
 app.post('/api/voice/programar', async (req, res) => {
-  const requestId = Date.now();
-  console.log(`\n📅 ========== PROGRAMAR ALERTA #${requestId} ==========`);
-  console.log(`📨 Body recibido:`, req.body);
-  
   try {
     const { url, fecha, hora, tarjeta, mensaje, id } = req.body;
     
@@ -261,49 +301,23 @@ app.post('/api/voice/programar', async (req, res) => {
     const msHasta = fechaHoraProgramada - ahora;
     const alertaId = id || Date.now().toString();
     
-    console.log(`📅 Alerta programada para: ${fecha} ${hora}`);
-    console.log(`⏱️  Tiempo hasta ejecución: ${Math.round(msHasta/1000)} segundos`);
-    
     setTimeout(async () => {
-      console.log(`\n🔔 ========== EJECUTANDO ALERTA PROGRAMADA ==========`);
-      console.log(`🆔 ID: ${alertaId}`);
-      console.log(`📅 Fecha: ${fecha} ${hora}`);
       await enviarNotificacion(textoMensaje, fecha, hora, tarjeta);
-      console.log(`========================================\n`);
     }, msHasta);
     
     if (url) {
       setTimeout(async () => {
-        try { 
-          await fetch(url); 
-          console.log(`✅ Voice Monkey ejecutado para ${alertaId}`);
-        } catch (e) {
-          console.error(`❌ Error Voice Monkey: ${e.message}`);
-        }
+        try { await fetch(url); } catch (e) {}
       }, msHasta);
     }
     
-    res.json({
-      ok: true,
-      id: alertaId,
-      estado: "programada",
-      msHasta,
-      mensaje: `Notificación programada para ${fecha} ${hora}`
-    });
-    
+    res.json({ ok: true, id: alertaId, msHasta });
   } catch (error) {
-    console.error(`❌ Error en /programar:`, error);
     res.status(500).json({ ok: false, error: error.message });
   }
 });
 
-/**
- * DISPARAR AHORA
- */
 app.post('/api/voice/disparar-ahora', async (req, res) => {
-  const requestId = Date.now();
-  console.log(`\n⚡ ========== DISPARAR AHORA #${requestId} ==========`);
-  
   try {
     const { url, mensaje, tarjeta } = req.body;
     const ahora = new Date();
@@ -311,49 +325,27 @@ app.post('/api/voice/disparar-ahora', async (req, res) => {
     const hora = ahora.toTimeString().split(' ')[0].slice(0, 5);
     
     const result = await enviarNotificacion(
-      mensaje || "Alerta inmediata de PayTrack",
+      mensaje || "Alerta inmediata",
       fecha,
       hora,
       tarjeta || "Alerta"
     );
     
-    if (url) {
-      await fetch(url.trim()).catch(e => console.error('Voice Monkey falló:', e.message));
-    }
-    
-    res.json({ ok: result.ok, mensaje: result.ok ? "Alerta enviada" : "Error" });
+    if (url) await fetch(url.trim()).catch(() => {});
+    res.json({ ok: result.ok });
   } catch (error) {
-    console.error(`❌ Error:`, error);
     res.status(500).json({ ok: false, error: error.message });
   }
 });
 
-// ============================================
-// INICIO DEL SERVIDOR
-// ============================================
-
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-  console.log('\n========================================');
-  console.log('🚀 SERVIDOR PAYTRACK INICIADO');
-  console.log('========================================');
+  console.log(`\n🚀 Servidor PayTrack corriendo`);
   console.log(`📍 URL: https://voice-api-dblt-if6d.onrender.com`);
-  console.log(`🔌 Puerto: ${PORT}`);
-  console.log(`📱 Tema ntfy: ${NTFY_TOPIC}`);
-  console.log(`🔑 Token ntfy: ${NTFY_TOKEN ? '✅ CONFIGURADO' : '❌ FALTANTE'}`);
-  console.log(`\n📋 Endpoints disponibles:`);
-  console.log(`   GET  /                      - Estado del servidor`);
-  console.log(`   GET  /privacy               - Política de privacidad`);
-  console.log(`   GET  /topic                 - Info del tema (incluye comando curl)`);
-  console.log(`   POST /api/alexa/prueba-rapida - Probar notificación`);
-  console.log(`   POST /api/voice/programar   - Programar alerta`);
-  console.log(`   POST /api/voice/disparar-ahora - Alerta inmediata`);
-  console.log(`\n📱 Para recibir notificaciones:`);
-  console.log(`   1. Descarga la app ntfy (iOS/Android)`);
-  console.log(`   2. Suscríbete al tema: ${NTFY_TOPIC}`);
-  console.log(`\n🧪 Prueba rápida desde terminal:`);
-  console.log(`   curl -X POST https://voice-api-dblt-if6d.onrender.com/api/alexa/prueba-rapida \\`);
-  console.log(`        -H "Content-Type: application/json" \\`);
-  console.log(`        -d '{"mensaje":"Prueba desde terminal"}'`);
-  console.log('========================================\n');
+  console.log(`📱 Tema: ${NTFY_TOPIC}`);
+  console.log(`📡 Modo actual: ${currentMode}`);
+  console.log(`\n🔍 DIAGNÓSTICO:`);
+  console.log(`   Visita: /test-ntfy`);
+  console.log(`   Cambiar modo: /set-mode?mode=url  o /set-mode?mode=header`);
+  console.log(`\n🧪 Prueba: POST /api/alexa/prueba-rapida\n`);
 });
