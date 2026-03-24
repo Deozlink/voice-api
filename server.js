@@ -1,3 +1,8 @@
+// ============================================
+// SERVIDOR DE PAYTRACK
+// Notificaciones: ntfy.sh (gratis) + Voice Monkey (Alexa)
+// ============================================
+
 const express = require('express');
 const cors = require('cors');
 
@@ -6,63 +11,79 @@ app.use(cors());
 app.use(express.json());
 
 // ============================================
-// CONFIGURACIÓN DE NTFY CON TOKEN
+// CONFIGURACIÓN DE NTFY.SH
 // ============================================
 
-// TEMA: el nombre del canal donde se publicarán las notificaciones
-// CAMBIALO por uno único, por ejemplo: paytrack_[tu_nombre]
-const NTFY_TOPIC = 'paytrack_deozlink'; // ← CAMBIA ESTO
+// TEMA: nombre del canal donde se publican las notificaciones
+// CAMBIALO por uno único para tus usuarios
+const NTFY_TOPIC = 'paytrack_deozlink';
 
 // TOKEN: créalo en https://ntfy.sh/app → Account → Access tokens
-// Es la "llave" que autentica tu servidor y evita bloqueos por IP
-const NTFY_TOKEN = 'tk_duwqyl6xrt8bh510p5b23xysy7ser'; // ← PON AQUÍ TU TOKEN
+// Este token autentica a tu servidor y evita límites por IP
+const NTFY_TOKEN = 'tk_duwqyl6xrt8bh510p5b23xysy7ser';
 
-console.log(`📱 ntfy configurado:`);
+// Verificar que el token está configurado
+if (!NTFY_TOKEN) {
+  console.error('❌ ERROR: NTFY_TOKEN no está configurado');
+  console.log('🔧 Crea un token en https://ntfy.sh/app');
+}
+
+console.log(`📱 ntfy.sh configurado:`);
 console.log(`   Tema: ${NTFY_TOPIC}`);
-console.log(`   Token: ${NTFY_TOKEN.substring(0, 10)}... (oculto)`);
-console.log(`🔔 Suscríbete en la app ntfy con el tema: ${NTFY_TOPIC}`);
+console.log(`   Token: ${NTFY_TOKEN ? '✅ presente' : '❌ faltante'}`);
 
 // ============================================
-// FUNCIÓN PARA ENVIAR NOTIFICACIONES
+// FUNCIÓN PRINCIPAL: ENVIAR NOTIFICACIÓN
 // ============================================
 
 /**
  * Envía una notificación push al teléfono usando ntfy.sh
- * @param {string} mensaje - Texto principal de la notificación
- * @param {string} fecha - Fecha del recordatorio (YYYY-MM-DD)
- * @param {string} hora - Hora del recordatorio (HH:MM)
+ * @param {string} mensaje - Texto principal (ej: "Recordatorio de pago")
+ * @param {string} fecha - Fecha en formato YYYY-MM-DD
+ * @param {string} hora - Hora en formato HH:MM
  * @param {string} tarjeta - Nombre de la tarjeta (opcional)
  * @returns {Promise<{ok: boolean, error?: string}>}
  */
 async function enviarNotificacion(mensaje, fecha, hora, tarjeta = '') {
   try {
-    // Construir el mensaje en texto plano (sin emojis en el body)
-    const texto = `${mensaje}\n\nTarjeta: ${tarjeta || 'No especificada'}\nFecha: ${fecha || 'No especificada'}\nHora: ${hora || 'No especificada'}\n\nPayTrack - Gestión de pagos`;
+    // Construir el cuerpo del mensaje (texto plano)
+    const texto = `${mensaje}
+
+Tarjeta: ${tarjeta || 'No especificada'}
+Fecha: ${fecha || 'No especificada'}
+Hora: ${hora || 'No especificada'}
+
+PayTrack - Gestión de pagos`;
+
+    console.log(`📤 Enviando notificación a ntfy.sh...`);
 
     // Enviar a ntfy.sh con autenticación por token
     const response = await fetch(`https://ntfy.sh/${NTFY_TOPIC}`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${NTFY_TOKEN}`,    // ← Autenticación con token
+        // IMPORTANTE: estos van en HEADERS, NO en el body
+        'Authorization': `Bearer ${NTFY_TOKEN}`,   // Autenticación
         'Title': 'PayTrack - Recordatorio',         // Título de la notificación
-        'Priority': 'high',                         // Prioridad alta (3)
-        'Tags': 'credit_card,money'                 // Etiquetas visuales
+        'Priority': 'high',                         // Prioridad (low, default, high, urgent)
+        'Tags': 'credit_card,money'                 // Emojis/tags visuales
       },
-      body: texto
+      body: texto                                    // El texto va en el body
     });
 
+    console.log(`📥 Respuesta ntfy.sh: status ${response.status}`);
+
     if (response.ok) {
-      console.log('✅ Notificación enviada por ntfy.sh');
+      console.log('✅ Notificación enviada correctamente');
       return { ok: true };
     }
     
-    // Si hubo error, leer el mensaje de respuesta
+    // Si hubo error, leer el mensaje
     const errorText = await response.text();
-    console.error(`❌ ntfy.sh respondió con status ${response.status}:`, errorText);
-    throw new Error(`Error ${response.status}: ${errorText.substring(0, 100)}`);
+    console.error(`❌ Error ntfy.sh (${response.status}):`, errorText);
+    return { ok: false, error: `Error ${response.status}: ${errorText.substring(0, 100)}` };
     
   } catch (error) {
-    console.error('❌ Error al enviar notificación:', error.message);
+    console.error('❌ Error de red:', error.message);
     return { ok: false, error: error.message };
   }
 }
@@ -71,7 +92,9 @@ async function enviarNotificacion(mensaje, fecha, hora, tarjeta = '') {
 // ENDPOINTS PÚBLICOS
 // ============================================
 
-// Verificar estado del servidor
+/**
+ * Endpoint principal - Verificar que el servidor funciona
+ */
 app.get("/", (req, res) => {
   res.json({ 
     ok: true, 
@@ -81,7 +104,9 @@ app.get("/", (req, res) => {
   });
 });
 
-// Política de privacidad (requerida para tiendas de apps)
+/**
+ * Política de privacidad (requerida para tiendas de apps)
+ */
 app.get('/privacy', (req, res) => {
   res.send(`
     <html>
@@ -107,7 +132,9 @@ app.get('/privacy', (req, res) => {
   `);
 });
 
-// Obtener información del tema (útil para debugging)
+/**
+ * Obtener información del tema (útil para debugging)
+ */
 app.get('/topic', (req, res) => {
   res.json({
     topic: NTFY_TOPIC,
@@ -131,9 +158,9 @@ app.post('/api/alexa/prueba-rapida', async (req, res) => {
     const fecha = ahora.toISOString().split('T')[0];
     const hora = ahora.toTimeString().split(' ')[0].slice(0, 5);
     
-    console.log(`📅 Enviando prueba: ${fecha} ${hora}`);
+    console.log(`📅 Prueba rápida: ${fecha} ${hora}`);
     const result = await enviarNotificacion(
-      mensaje || "Prueba de PayTrack",
+      mensaje || "🔔 Prueba de PayTrack",
       fecha,
       hora,
       "Prueba"
@@ -153,6 +180,15 @@ app.post('/api/alexa/prueba-rapida', async (req, res) => {
 /**
  * PROGRAMAR ALERTA - Crea un recordatorio programado
  * Se ejecuta en la fecha y hora especificadas
+ * 
+ * Body esperado:
+ * {
+ *   "url": "https://...",           // URL de Voice Monkey (opcional)
+ *   "fecha": "2026-03-25",          // Fecha en YYYY-MM-DD
+ *   "hora": "09:00",                // Hora en HH:MM
+ *   "tarjeta": "NU",                // Nombre de la tarjeta
+ *   "mensaje": "Texto personalizado" // Mensaje opcional
+ * }
  */
 app.post('/api/voice/programar', async (req, res) => {
   try {
@@ -160,7 +196,10 @@ app.post('/api/voice/programar', async (req, res) => {
     
     // Validar datos requeridos
     if (!fecha || !hora) {
-      return res.status(400).json({ ok: false, error: "Faltan datos: fecha, hora" });
+      return res.status(400).json({ 
+        ok: false, 
+        error: "Faltan datos: fecha y hora son requeridos" 
+      });
     }
     
     // Verificar que la fecha/hora sea futura
@@ -168,7 +207,10 @@ app.post('/api/voice/programar', async (req, res) => {
     const ahora = new Date();
     
     if (fechaHoraProgramada < ahora) {
-      return res.status(400).json({ ok: false, error: "Fecha/hora ya pasó" });
+      return res.status(400).json({ 
+        ok: false, 
+        error: "Fecha/hora ya pasó. Elige una fecha futura." 
+      });
     }
     
     // Preparar mensaje
@@ -176,13 +218,19 @@ app.post('/api/voice/programar', async (req, res) => {
     const msHasta = fechaHoraProgramada - ahora;
     const alertaId = id || Date.now().toString();
     
-    // Programar la notificación de ntfy.sh
+    console.log(`📅 Programando alerta ${alertaId} para ${fecha} ${hora} (en ${Math.round(msHasta/1000)} segundos)`);
+    
+    // ============================================
+    // PROGRAMAR NOTIFICACIÓN DE NTFY.SH
+    // ============================================
     setTimeout(async () => {
-      console.log(`🔔 Ejecutando alerta programada: ${alertaId} para ${fecha} ${hora}`);
+      console.log(`🔔 Ejecutando alerta programada: ${alertaId}`);
       await enviarNotificacion(textoMensaje, fecha, hora, tarjeta);
     }, msHasta);
     
-    // Voice Monkey como respaldo (si se proporcionó URL)
+    // ============================================
+    // PROGRAMAR VOICE MONKEY (ALEXA) COMO RESPALDO
+    // ============================================
     if (url) {
       setTimeout(async () => {
         try { 
@@ -219,6 +267,8 @@ app.post('/api/voice/disparar-ahora', async (req, res) => {
     const fecha = ahora.toISOString().split('T')[0];
     const hora = ahora.toTimeString().split(' ')[0].slice(0, 5);
     
+    console.log(`⚡ Disparando alerta inmediata: ${fecha} ${hora}`);
+    
     // Enviar notificación inmediata
     const result = await enviarNotificacion(
       mensaje || "Alerta inmediata de PayTrack",
@@ -245,10 +295,18 @@ app.post('/api/voice/disparar-ahora', async (req, res) => {
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-  console.log(`\n🚀 Servidor corriendo en puerto ${PORT}`);
+  console.log(`\n🚀 Servidor PayTrack corriendo en puerto ${PORT}`);
   console.log(`📍 URL: https://voice-api-dblt-if6d.onrender.com`);
-  console.log(`📱 TEMA NTFY: ${NTFY_TOPIC}`);
-  console.log(`🧪 Prueba rápida: POST /api/alexa/prueba-rapida`);
-  console.log(`📅 Programar alerta: POST /api/voice/programar`);
-  console.log(`⚡ Disparar ahora: POST /api/voice/disparar-ahora\n`);
+  console.log(`📱 Tema ntfy.sh: ${NTFY_TOPIC}`);
+  console.log(`\n🔔 Endpoints disponibles:`);
+  console.log(`   GET  /                      - Estado del servidor`);
+  console.log(`   GET  /privacy               - Política de privacidad`);
+  console.log(`   GET  /topic                 - Información del tema`);
+  console.log(`   POST /api/alexa/prueba-rapida - Probar notificación inmediata`);
+  console.log(`   POST /api/voice/programar   - Programar alerta`);
+  console.log(`   POST /api/voice/disparar-ahora - Disparar alerta inmediata`);
+  console.log(`\n📱 Para recibir notificaciones:`);
+  console.log(`   1. Descarga la app ntfy (iOS/Android)`);
+  console.log(`   2. Suscríbete al tema: ${NTFY_TOPIC}`);
+  console.log(`\n✅ Servidor listo!\n`);
 });
