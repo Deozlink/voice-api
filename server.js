@@ -11,11 +11,11 @@ app.use(express.json());
 
 // TEMA: el nombre del canal donde se publicarán las notificaciones
 // CAMBIALO por uno único, por ejemplo: paytrack_[tu_nombre]
-const NTFY_TOPIC = 'paytrack_daniel'; // ← CAMBIA ESTO
+const NTFY_TOPIC = 'paytrack_deozlink'; // ← CAMBIA ESTO
 
 // TOKEN: créalo en https://ntfy.sh/app → Account → Access tokens
 // Es la "llave" que autentica tu servidor y evita bloqueos por IP
-const NTFY_TOKEN = 'tk_xxxxxxxxxxxxxxxxxxxxxxxx'; // ← PON AQUÍ TU TOKEN
+const NTFY_TOKEN = 'tk_duwqyl6xrt8bh510p5b23xysy7ser'; // ← PON AQUÍ TU TOKEN
 
 console.log(`📱 ntfy configurado:`);
 console.log(`   Tema: ${NTFY_TOPIC}`);
