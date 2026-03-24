@@ -8,10 +8,12 @@ app.use(express.json());
 // ============================================
 // CONFIGURACIÓN DE NTFY (GRATUITO)
 // ============================================
-// Tema único para tus notificaciones
-const NTFY_TOPIC = 'paytrack_' + Math.random().toString(36).substring(2, 8);
+// DESPUÉS: tema fijo y fácil de recordar
+const NTFY_TOPIC = 'paytrack_deozlink';
 console.log(`📱 Tema ntfy: ${NTFY_TOPIC}`);
 console.log(`🔔 Suscríbete en la app ntfy con: ${NTFY_TOPIC}`);
+
+
 
 // ============================================
 // FUNCIÓN PARA ENVIAR NOTIFICACIONES
