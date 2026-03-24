@@ -13,26 +13,44 @@ app.use(express.json());
 // ============================================
 // CONFIGURACIÓN DE NTFY.SH
 // ============================================
-
-// TEMA: nombre del canal donde se publican las notificaciones
 const NTFY_TOPIC = 'paytrack_deozlink';
-
-// TOKEN: créalo en https://ntfy.sh/app → Account → Access tokens
 const NTFY_TOKEN = 'tk_duwqyl6xrt8bh510p5b23xysy7ser';
 
-// MODO: 'header' o 'url' (probar ambos)
-// 'header' - envía token en Authorization header
-// 'url'    - envía token en la URL (?auth=token)
-const NTFY_MODE = process.env.NTFY_MODE || 'url'; // Cambiar a 'header' si no funciona
+async function enviarNotificacion(mensaje, fecha, hora, tarjeta = '') {
+  try {
+    const texto = `${mensaje}\n\nTarjeta: ${tarjeta || 'No especificada'}\nFecha: ${fecha || 'No especificada'}\nHora: ${hora || 'No especificada'}\n\nPayTrack`;
 
-console.log('\n========================================');
-console.log('🔧 CONFIGURACIÓN DE NTFY.SH');
-console.log('========================================');
-console.log(`📱 Tema: ${NTFY_TOPIC}`);
-console.log(`🔑 Token: ${NTFY_TOKEN ? NTFY_TOKEN.substring(0, 15) + '...' : '❌ NO CONFIGURADO'}`);
-console.log(`📡 Modo de envío: ${NTFY_MODE === 'url' ? 'URL (?auth=token)' : 'Header (Authorization: Bearer)'}`);
-console.log('========================================\n');
+    // 🔑 TOKEN EN LA URL (la forma más simple)
+    const url = `https://ntfy.sh/${NTFY_TOPIC}?auth=${NTFY_TOKEN}`;
+    
+    console.log(`📤 Enviando a: ${url.substring(0, 60)}...`);
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Title': 'PayTrack - Recordatorio',
+        'Priority': 'high',
+        'Tags': 'credit_card,money'
+      },
+      body: texto
+    });
 
+    console.log(`📥 Status: ${response.status}`);
+
+    if (response.ok) {
+      console.log('✅ Notificación enviada');
+      return { ok: true };
+    }
+    
+    const errorText = await response.text();
+    console.error(`❌ Error ${response.status}:`, errorText);
+    return { ok: false, error: `Error ${response.status}` };
+    
+  } catch (error) {
+    console.error('❌ Error:', error.message);
+    return { ok: false, error: error.message };
+  }
+}
 // ============================================
 // FUNCIÓN PRINCIPAL: ENVIAR NOTIFICACIÓN
 // ============================================
