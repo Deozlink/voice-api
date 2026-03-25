@@ -1,5 +1,5 @@
 // ============================================
-// SERVIDOR DE PAYTRACK - Bark con Ringtone
+// SERVIDOR DE PAYTRACK - Bark con Ringtone (Versión Corregida)
 // ============================================
 
 const express = require('express');
@@ -13,60 +13,55 @@ app.use(express.json());
 // CONFIGURACIÓN DE BARK
 // ============================================
 
-// Tu URL base de Bark
+// Tu URL base de Bark (sin espacios, sin caracteres extraños)
 const BARK_BASE_URL = 'https://api.day.app/RhWJo5Dc2gLkr9ayK4RHwR';
 
 console.log('\n========================================');
 console.log('🔧 CONFIGURACIÓN DE BARK (iOS)');
 console.log('========================================');
 console.log(`📱 URL base: ${BARK_BASE_URL}`);
-console.log(`🔔 Ringtone activado: ✅ Sí (sonará como llamada)`);
 console.log('========================================\n');
 
 // ============================================
-// FUNCIÓN PARA ENVIAR NOTIFICACIÓN CON RINGTONE
+// FUNCIÓN PARA ENVIAR NOTIFICACIÓN
 // ============================================
 
 async function enviarNotificacion(mensaje, fecha, hora, tarjeta = '') {
   try {
-    // Validar URL
-    if (!BARK_BASE_URL) {
-      console.error('❌ ERROR: URL de Bark no configurada');
-      return { ok: false, error: 'URL de Bark no configurada' };
-    }
-
-    // Construir el mensaje
+    // Construir el texto del mensaje
     const texto = `${mensaje}\n\nTarjeta: ${tarjeta || 'No especificada'}\nFecha: ${fecha || 'No especificada'}\nHora: ${hora || 'No especificada'}\n\nPayTrack - Gestión de pagos`;
-    const textoCodificado = encodeURIComponent(texto);
     
-    // 🔔 1. Hacer sonar el teléfono (Ringtone)
-    const ringtoneUrl = `${BARK_BASE_URL}/Ringtone?call=1`;
-    console.log(`📞 Haciendo sonar el teléfono...`);
-    const ringtoneRes = await fetch(ringtoneUrl);
-    const ringtoneData = await ringtoneRes.json();
+    // Limpiar el texto: eliminar acentos y caracteres especiales
+    const textoLimpio = texto
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^\w\s\n:]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
     
-    if (ringtoneData.code !== 200) {
-      console.warn(`⚠️  Ringtone: ${ringtoneData.message}`);
-    } else {
-      console.log(`✅ Ringtone activado`);
-    }
+    // Codificar para URL
+    const textoCodificado = encodeURIComponent(textoLimpio);
     
-    // Pequeña pausa para que suene primero
-    await new Promise(resolve => setTimeout(resolve, 300));
+    // 🔔 CONSTRUIR URL ÚNICA: Ringtone + Body en una sola petición
+    // Formato: /Ringtone?call=1&automaticallyCopy=1&body=Mensaje
+    const url = `${BARK_BASE_URL}/Ringtone?call=1&automaticallyCopy=1&body=${textoCodificado}`;
     
-    // 📱 2. Enviar el mensaje
-    const mensajeUrl = `${BARK_BASE_URL}/Body/${textoCodificado}`;
-    console.log(`📤 Enviando mensaje: ${mensaje.substring(0, 50)}...`);
-    const mensajeRes = await fetch(mensajeUrl);
-    const mensajeData = await mensajeRes.json();
-    
-    if (mensajeData.code === 200) {
-      console.log(`✅ Notificación enviada`);
+    console.log(`📤 Enviando notificación con Ringtone...`);
+    console.log(`   Mensaje: ${mensaje.substring(0, 50)}...`);
+    console.log(`   URL: ${url.substring(0, 80)}...`);
+
+    const response = await fetch(url);
+    const result = await response.json();
+
+    console.log(`📥 Respuesta: code ${result.code}`);
+
+    if (result.code === 200) {
+      console.log(`✅ Notificación enviada (sonará como llamada)`);
       return { ok: true };
     }
     
-    console.error('❌ Error:', mensajeData);
-    return { ok: false, error: mensajeData.message };
+    console.error('❌ Error:', result);
+    return { ok: false, error: result.message };
     
   } catch (error) {
     console.error('❌ Error:', error.message);
@@ -83,7 +78,7 @@ app.get("/", (req, res) => {
     ok: true, 
     mensaje: "API de PayTrack funcionando",
     notificaciones: "Bark con Ringtone",
-    ringtone: "✅ Activado (sonará como llamada)"
+    ringtone: "✅ Activado"
   });
 });
 
