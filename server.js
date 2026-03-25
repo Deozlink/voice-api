@@ -1,15 +1,9 @@
 // ─── server.js — PayTrack Voice API v4 ──────────────────────────────────────
 // Servidor desplegado en Oregon (US West) → UTC-7 / Pacific Time
-// El frontend (CDMX, UTC-6) envía la hora ya ajustada -1h (Oregon es 1h atrás de CDMX).
-// 
-// ✅ Soporte para Bark (notificaciones push a iPhone)
-// ✅ Variable de entorno BARK_URL
-// ✅ Logs detallados para depuración
 // ─────────────────────────────────────────────────────────────────────────────
 
 import express from "express";
 import cors    from "cors";
-import dotenv  from "dotenv";
 import fetch   from "node-fetch";
 import fs      from "fs";
 import path    from "path";
@@ -17,8 +11,6 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ALERTAS_FILE = path.join(__dirname, "alertas_pendientes.json");
-
-dotenv.config();
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -33,8 +25,7 @@ if (BARK_URL) {
   console.log(`🔔 Las notificaciones se enviarán a tu iPhone\n`);
 } else {
   console.log(`\n⚠️  BARK NO CONFIGURADO`);
-  console.log(`   Agrega la variable de entorno BARK_URL en Render`);
-  console.log(`   Ejemplo: BARK_URL = https://api.day.app/tu-clave-unica\n`);
+  console.log(`   Agrega la variable de entorno BARK_URL en Render\n`);
 }
 
 app.use(cors({ origin: "*" }));
@@ -43,7 +34,6 @@ app.use(express.json());
 // ── Alertas en memoria ───────────────────────────────────────────────────────
 const alertas = new Map();
 
-// ── Persistencia en disco ────────────────────────────────────────────────────
 function guardarAlertas() {
   try {
     const pendientes = [...alertas.values()]
