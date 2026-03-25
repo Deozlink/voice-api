@@ -154,7 +154,7 @@ function agendarAlerta(alerta) {
 }
 
 // ============================================
-// ENDPOINTS
+// ENDPOINTS PRINCIPALES
 // ============================================
 
 app.get("/api/voice/disparar", async (req, res) => {
@@ -218,11 +218,9 @@ async function manejarDispararAhora(url, mensaje, tarjeta, res) {
   }
   
   try {
-    // Voice Monkey
     console.log(`📢 Voice Monkey...`);
     await llamarVoiceMonkey(url.trim());
     
-    // Bark
     if (BARK_URL) {
       console.log(`📱 Bark...`);
       const fecha = new Date().toISOString().split('T')[0];
@@ -272,6 +270,73 @@ app.get("/api/voice/alertas", (_req, res) => {
   return res.json({ ok: true, total: lista.length, alertas: lista });
 });
 
+// ============================================
+// ENDPOINTS DE DEPURACIÓN (para ver alertas en disco)
+// ============================================
+
+app.get("/api/debug/alertas-file", (req, res) => {
+  try {
+    if (fs.existsSync(ALERTAS_FILE)) {
+      const content = fs.readFileSync(ALERTAS_FILE, "utf8");
+      const parsed = JSON.parse(content);
+      res.json({
+        ok: true,
+        archivo_existe: true,
+        total: parsed.length,
+        alertas: parsed,
+        ubicacion: ALERTAS_FILE
+      });
+    } else {
+      res.json({
+        ok: true,
+        archivo_existe: false,
+        mensaje: "El archivo alertas_pendientes.json no existe aún",
+        ubicacion: ALERTAS_FILE
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: error.message
+    });
+  }
+});
+
+app.get("/api/debug/estado", async (req, res) => {
+  const alertasEnMemoria = [...alertas.values()].map(a => ({
+    id: a.id,
+    tarjeta: a.tarjeta,
+    fecha: a.fecha,
+    hora: a.hora,
+    estado: a.estado,
+    creadaEn: a.creadaEn
+  }));
+  
+  let alertasEnDisco = { existe: false, total: 0 };
+  try {
+    if (fs.existsSync(ALERTAS_FILE)) {
+      const content = fs.readFileSync(ALERTAS_FILE, "utf8");
+      const parsed = JSON.parse(content);
+      alertasEnDisco = { existe: true, total: parsed.length };
+    }
+  } catch { alertasEnDisco = { existe: false, error: true }; }
+  
+  res.json({
+    ok: true,
+    servidor: {
+      bark_url: BARK_URL ? "✅ configurado" : "❌ no configurado",
+      version: "4.0",
+      timestamp: new Date().toISOString(),
+      hora_servidor: new Date().toLocaleString("es-MX", { timeZone: "America/Mexico_City" })
+    },
+    alertas_en_memoria: {
+      total: alertasEnMemoria.length,
+      lista: alertasEnMemoria
+    },
+    alertas_en_disco: alertasEnDisco
+  });
+});
+
 app.get("/", (_req, res) => {
   return res.json({
     servicio: "PayTrack Voice API",
@@ -282,7 +347,9 @@ app.get("/", (_req, res) => {
       "GET /api/voice/programar",
       "GET /api/voice/disparar",
       "GET /api/voice/cancelar",
-      "GET /api/voice/alertas"
+      "GET /api/voice/alertas",
+      "GET /api/debug/alertas-file",
+      "GET /api/debug/estado"
     ]
   });
 });
